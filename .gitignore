@@ -1,1 +1,4 @@
 /target
+/logs
+main.py
+main_bkp.rs
