@@ -24,7 +24,7 @@ pub async fn login(pool: web::Data<MySqlPool>, form: web::Json<LoginForm>) -> Ht
     }
 
     let token = generate_token();
-    let _ = sqlx::query("INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, NOW() + INTERVAL 7 DAY)")
+    let _ = sqlx::query("INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, NOW() + INTERVAL 1 DAY)")
         .bind(uid)
         .bind(&token)
         .execute(pool.get_ref())

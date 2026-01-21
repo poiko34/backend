@@ -23,10 +23,3 @@ pub struct RecoveryForm {
 pub struct LoginResponse {
     pub token: String,
 }
-
-// #[derive(Serialize)]
-// pub struct RegisterResponse {
-//     pub uid: u32,
-//     pub username: String,
-//     pub recovery_code: String,
-// }
