@@ -4,57 +4,69 @@ use log::{info, error};
 use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use rand::thread_rng;
 
-use crate::{models::RegisterForm, auth::generate_recovery_code, config::API_KEY};
+use crate::{models::RegisterForm, auth::generate_recovery_code, config::API_KEY, errors::AppError};
 
 #[post("/register")]
-pub async fn register(pool: web::Data<MySqlPool>, req: HttpRequest, form: web::Json<RegisterForm>) -> HttpResponse {
+pub async fn register(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    form: web::Json<RegisterForm>,
+) -> Result<HttpResponse, AppError> {
     info!("POST /register | username={}", form.username);
 
+    // Проверка API_KEY
     if req.headers().get("X-API-Key").and_then(|v| v.to_str().ok()) != Some(API_KEY.as_str()) {
         error!("Unauthorized register attempt | username={}", form.username);
-        return HttpResponse::Unauthorized().finish();
+        return Ok(HttpResponse::Unauthorized().finish());
     }
 
-    if let Ok(Some(_)) = sqlx::query("SELECT id FROM users WHERE username = ?")
+    // Проверка существующего пользователя
+    if let Some(_) = sqlx::query("SELECT id FROM users WHERE username = ?")
         .bind(&form.username)
         .fetch_optional(pool.get_ref())
         .await
+        .map_err(AppError::DbError)?
     {
-        return HttpResponse::Conflict().json(serde_json::json!({ "error": "User exists" }));
+        return Ok(HttpResponse::Conflict().json(serde_json::json!({ "error": "User exists" })));
     }
 
+    // Хэшируем пароль
     let salt = SaltString::generate(&mut thread_rng());
     let password_hash = Argon2::default()
         .hash_password(form.password.as_bytes(), &salt)
-        .unwrap()
+        .map_err(|_| AppError::Internal)?
         .to_string();
 
+    // Генерация и хэш recovery_code
     let recovery_code = generate_recovery_code();
     let recovery_hash = Argon2::default()
         .hash_password(recovery_code.as_bytes(), &salt)
-        .unwrap()
+        .map_err(|_| AppError::Internal)?
         .to_string();
 
-    let _ = sqlx::query(
+    // Вставка пользователя
+    sqlx::query(
         "INSERT INTO users (username, password_hash, role, balance, recovery_code) VALUES (?, ?, 'buyer', 0.0, ?)"
     )
     .bind(&form.username)
     .bind(&password_hash)
     .bind(&recovery_hash)
     .execute(pool.get_ref())
-    .await;
+    .await
+    .map_err(AppError::DbError)?;
 
+    // Получаем id нового пользователя
     let user = sqlx::query("SELECT id FROM users WHERE username = ?")
         .bind(&form.username)
         .fetch_one(pool.get_ref())
         .await
-        .unwrap();
+        .map_err(AppError::DbError)?;
 
-    let uid: u32 = user.try_get("id").unwrap();
+    let uid: u32 = user.try_get("id").map_err(|_| AppError::Internal)?;
 
-    HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Ok().json(serde_json::json!({
         "uid": uid,
         "username": form.username,
         "recovery_code": recovery_code
-    }))
+    })))
 }

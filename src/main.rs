@@ -3,6 +3,7 @@ mod db;
 mod auth;
 mod models;
 mod handlers;
+pub mod errors;
 
 use actix_web::{App, HttpServer, web};
 use sqlx::MySqlPool;
